@@ -1,6 +1,8 @@
 import os
 import torch
 from transformers import AutoModelForSequenceClassification, AutoTokenizer, Trainer, TrainingArguments
+from collections import Counter
+import matplotlib.pyplot as plt
 
 class CustomDataset(torch.utils.data.Dataset):
     """Custom dataset class for handling encodings and labels."""
@@ -116,7 +118,30 @@ class DocumentClassifier:
           
         return embeddings
 
-# Sample Usage
+    def visualize_predictions(self, predictions):
+        """Visualize the number of documents per category as a bar chart."""
+        # Count predictions for each category
+        category_counts = Counter(predictions)
+        categories = [self.categories[cat_idx] for cat_idx in category_counts.keys()]
+        counts = list(category_counts.values())
+
+        # Plotting
+        plt.figure(figsize=(10, 6))
+        bars = plt.bar(categories, counts, color='skyblue')
+        
+        # Adding counts above bars
+        for bar, count in zip(bars, counts):
+            plt.text(bar.get_x() + bar.get_width() / 2.0, bar.get_height(), f"{count}",
+                     ha='center', va='bottom', fontsize=10)
+        
+        plt.xlabel('Categories')
+        plt.ylabel('Number of Documents')
+        plt.title('Document Count per Category')
+        plt.xticks(rotation=45, ha='right')
+        plt.tight_layout()
+        plt.show()
+
+# Main Code
 if __name__ == "__main__":
     # Adding new categories to initial labels
     initial_labels = ["Finance", "Healthcare", "Technology", "Application", "Business"]
@@ -136,7 +161,7 @@ if __name__ == "__main__":
     new_docs_path = "test"  # Replace with your file or directory path
 
     # Predict categories for documents in the file or directory
-    preds, confs = classifier.predict(new_docs_path)
+    preds, _ = classifier.predict(new_docs_path)
 
-    print("Predictions:", preds)
-    print("Confidence Scores:", confs)
+    # Visualize the document counts per category
+    classifier.visualize_predictions(preds)
