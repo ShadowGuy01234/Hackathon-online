@@ -1,7 +1,7 @@
 import os
 import torch
 from transformers import AutoModelForSequenceClassification, AutoTokenizer, Trainer, TrainingArguments
-from collections import Counter
+from collections import Counter, defaultdict
 import matplotlib.pyplot as plt
 
 class CustomDataset(torch.utils.data.Dataset):
@@ -41,22 +41,26 @@ class DocumentClassifier:
         
         Returns:
             List[str]: A list of document texts.
+            List[str]: A list of document names.
         """
         documents = []
+        doc_names = []
         if os.path.isdir(file_path):
             # Load each file's content as a separate document
             for filename in os.listdir(file_path):
                 full_path = os.path.join(file_path, filename)
                 with open(full_path, 'r', encoding='utf-8') as f:
                     documents.append(f.read())
+                    doc_names.append(filename)
         elif os.path.isfile(file_path):
             # Load each line as a separate document
             with open(file_path, 'r', encoding='utf-8') as f:
                 documents = f.readlines()
+                doc_names = [f"Line {i+1}" for i in range(len(documents))]
         else:
             raise ValueError(f"The path '{file_path}' is not a valid file or directory.")
         
-        return [doc.strip() for doc in documents if doc.strip()]  # Remove empty lines
+        return [doc.strip() for doc in documents if doc.strip()], doc_names  # Remove empty lines
 
     def train(self, train_texts, train_labels):
         """Fine-tune the classifier model."""
@@ -91,9 +95,11 @@ class DocumentClassifier:
             file_path (str): Path to a file or directory of files.
         
         Returns:
-            Tuple[List[int], List[float]]: Predicted category indices and their confidence scores.
+            List[int]: Predicted category indices.
+            List[float]: Confidence scores.
+            List[str]: Document names.
         """
-        documents = self.load_documents(file_path)
+        documents, doc_names = self.load_documents(file_path)
         inputs = self.preprocess(documents)
         
         # Ensure model is on CPU for inference
@@ -101,42 +107,34 @@ class DocumentClassifier:
         outputs = self.model(**inputs)  # Ensure inputs are on CPU
         logits = outputs.logits
         probs = torch.softmax(logits, dim=-1).detach().cpu().numpy()  # Ensure output is on CPU
-        confidence_scores = probs.max(axis=1)
         predictions = probs.argmax(axis=1)
         
-        return predictions.tolist(), confidence_scores.tolist()
+        return predictions.tolist(), doc_names
 
-    def embed_documents(self, documents):
-        """Get embeddings for documents from the model."""
-        inputs = self.preprocess(documents)
+    def visualize_predictions(self, predictions, doc_names):
+        """Visualize the number of documents per category as a bar chart with document names."""
+        # Group documents by category
+        category_to_docs = defaultdict(list)
+        for pred, doc_name in zip(predictions, doc_names):
+            category_to_docs[self.categories[pred]].append(doc_name)
         
-        # Ensure model is on CPU for embedding
-        self.model.to(self.device)
-        with torch.no_grad():
-            outputs = self.model(**inputs, output_hidden_states=True)
-            embeddings = outputs.hidden_states[-1][:, 0, :].cpu().numpy()  # Use last hidden state and ensure it's on CPU
-          
-        return embeddings
-
-    def visualize_predictions(self, predictions):
-        """Visualize the number of documents per category as a bar chart."""
-        # Count predictions for each category
-        category_counts = Counter(predictions)
-        categories = [self.categories[cat_idx] for cat_idx in category_counts.keys()]
-        counts = list(category_counts.values())
+        # Prepare data for plotting
+        categories = list(category_to_docs.keys())
+        counts = [len(category_to_docs[cat]) for cat in categories]
+        doc_lists = ["\n".join(category_to_docs[cat]) for cat in categories]
 
         # Plotting
-        plt.figure(figsize=(10, 6))
+        plt.figure(figsize=(12, 7))
         bars = plt.bar(categories, counts, color='skyblue')
         
-        # Adding counts above bars
-        for bar, count in zip(bars, counts):
-            plt.text(bar.get_x() + bar.get_width() / 2.0, bar.get_height(), f"{count}",
-                     ha='center', va='bottom', fontsize=10)
+        # Annotate bars with document names
+        for bar, doc_list in zip(bars, doc_lists):
+            plt.text(bar.get_x() + bar.get_width() / 2.0, bar.get_height(), doc_list,
+                     ha='center', va='bottom', fontsize=9, rotation=90)
         
         plt.xlabel('Categories')
         plt.ylabel('Number of Documents')
-        plt.title('Document Count per Category')
+        plt.title('Document Count per Category with Document Names')
         plt.xticks(rotation=45, ha='right')
         plt.tight_layout()
         plt.show()
@@ -161,7 +159,7 @@ if __name__ == "__main__":
     new_docs_path = "test"  # Replace with your file or directory path
 
     # Predict categories for documents in the file or directory
-    preds, _ = classifier.predict(new_docs_path)
+    preds, doc_names = classifier.predict(new_docs_path)
 
-    # Visualize the document counts per category
-    classifier.visualize_predictions(preds)
+    # Visualize the document counts per category with document names
+    classifier.visualize_predictions(preds, doc_names)
